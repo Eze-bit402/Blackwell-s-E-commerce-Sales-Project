@@ -1,0 +1,861 @@
+---
+title: "Investigating Customers Purchasing Patterns"
+author: "EZEIGBOKWE BLESSING"
+date: "2026-01-06"
+output:
+  powerpoint_presentation:
+    reference_doc: template 2-3.pptx
+  slidy_presentation: default
+subtitle: Investigating Customer Buying Patterns and Demographics
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 6)
+```
+
+# loading required library.
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(randomForest)
+library(caret)
+library(C50)
+library(scales)
+```
+
+# Introduction
+This project is to investigate Blackwell E-commerce customers transaction data collected from recent online and in-store sales and infer any insights about customer purchasing patterns between on-line and in-store mode of purchase. The data was given by Blackwell's company.
+# Objectives
+The goal of this project is to know the following;-
+1. Do customers in different regions spend more per transactions? 
+2. Are there any relationship between number of items and amount spent?
+3. Are there differences in the age of a customer between regions
+4. can we predict the age of a customer in a region based on other demographic data.
+5. Martins hypothesis needs to be investigated;is there any correlation between age of a customer and if the transactions was made online or in stores?
+6. Do any other factor predict if other factors predict if a customer will buy online or in store.
+7. predict the region of a customer using other demographic data.
+
+
+# Methodology
+1.*Data Mining:* Exploratory analysis to discover patterns
+2.*Statistical Testing:* correlation analysis
+3.*Machine Learning:* Predictive modeling
+
+# data description
+the dataset contains 80000 observations records with 5 variables: purchase mode, age, items, transaction amount and region.
+The data includes both online and in-store purchases.
+## loading the dataset
+```{r}
+Demo <- read.csv("Demographic_Data (5).csv")
+```
+
+## summary of dataset
+
+```{r}
+head(Demo)
+```
+
+```{r}
+tail(Demo)
+```
+
+```{r}
+attributes(Demo)
+```
+
+```{r}
+str(Demo)
+```
+
+```{r}
+summary(Demo)
+```
+# Data preprocessing 
+## Checking out for Duplicates
+```{r}
+sum(duplicated(Demo))
+```
+
+I checked the dataset and observed there are 21 duplicates
+## Remove Duplicates
+I used the Distinct Function to remove the duplicates
+```{r}
+commerce <- distinct(Demo)
+```
+Duplicate records were removed to avoid repeated identical transactions that could bias summary statistics and model training. 
+## Checking out for missing  values
+```{r}
+sum(is.na(commerce))
+```
+I checked the dataset and observed there are no missing values
+
+## Identifyin outliers
+## Boxplot for age
+```{r}
+boxplot(commerce$age)
+```
+I observed there are no outliers for age.
+## Boxplot for items
+```{r}
+boxplot(commerce$items)
+```
+I observed there are no outliers for items.
+## Boxplot for amount
+```{r}
+boxplot(commerce$amount)
+```
+Outliers in transaction amount were retained because high-value purchases represent genuine business behavior and removing them could distort revenue analysis.
+## Data Transformation
+
+## Mapping for catergorical variables
+This is to map the catergorical variables.
+0,1 = online and in-store.
+1,2,3,4 = north, south, east and west.
+
+```{r}
+commerce$purchase.mode <- factor(commerce$purchase.mode,
+                        levels = c(0, 1),
+                        labels = c("online", "in-store"))
+
+```
+
+```{r}
+commerce$region <- factor(commerce$region,
+                        levels = c(1,2,3,4),
+                        labels = c("North", "South","East","West"))
+
+```
+
+## feature engineering
+we created a new feature(age range) to help us classify age into different groups. the above code also help us convert the numerical variable "age" to a categorical variable "age-range" (Discretization).
+
+```{r}
+commerce$age_range <- cut(commerce$age,
+                        breaks = c(17, 40, 60, 85),
+                        labels = c("Adult", "Middle-Age", "Elderly"),
+                        right=TRUE)
+```
+To improve interpretability, age was transformed into three categories:Adult, middle-age and elderly. This allows easier comparison of customer behavior across age groups.
+
+```{r}
+head(commerce)
+```
+
+# Question 1: Regional Spending Patterns
+
+*Research Question:* Do customers in different regions spend more per transaction? Which regions spend the most/least?
+
+*Approach:* 
+- Visualize spending distributions
+
+
+# Exploratory Data analysis(EDA)
+## univariate analysis
+```{r}
+ggplot(commerce, aes(x = age_range, fill = age_range)) +
+  geom_bar() +
+  labs(title = "Age Group Distribution", x = "age_range", y = "Count") +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+
+```{r}
+demo2 <- aggregate(amount ~ region, data=commerce, FUN = sum, na.rm=TRUE)
+head(demo2)
+```
+## Transaction count per region
+```{r warning=FALSE}
+ggplot(commerce, aes(x = region)) +
+  geom_bar(fill = "darkred") +
+  labs(title = "Transactions Count by Region",
+    x = "Region",
+    y = "Count") +
+  theme_minimal()
+```
+
+
+## Bivariate analysis
+## Amount per region
+```{r}
+avg_amount <- aggregate(amount ~ region, data = commerce, mean)
+```
+
+```{r}
+ggplot(avg_amount, aes(x = region, y = amount, fill = region)) +
+  geom_col() +
+  labs(title = "Average  Amount spent  per transaction by region",
+    x = "Region",
+    y = "Average Amount") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+```{r warning=FALSE}
+ggplot(commerce, aes(x=age_range,fill = region))+
+  geom_bar(position = "dodge")+
+  labs(title = "Age distribution of customers by region", x="Age Range", y="Number of customers")+
+   scale_fill_brewer(palette = "set3")                 
+```
+
+## Key Findings
+Customers in different regions exhibit differences in spending behavior. The West region recorded the highest number of transactions and the highest average transaction amount, followed by the East and North regions, while the South region recorded the lowest average spending per transaction. This indicates that customers in the West contribute the most revenue per transaction, while customers in the South contribute the least. Therefore, regional location influences customer spending behavior.
+
+
+
+# Question 2: Items vs Amount Relationship
+
+*Research Question:* Is there a relationship between number of items purchased and amount spent?
+
+*Approach:* 
+
+- Column Chart - Visual relationship between total amount and item
+
+
+```{r}
+Total_amount_per_item <- commerce %>%
+  group_by(items) %>%
+  summarise(total_amount = sum(amount, na.rm = TRUE),#na.rm = TRUE ignore NA
+    Count = n())  # This tells you how many transactions are in each group
+
+Total_amount_per_item  
+```
+
+```{r}
+ggplot(Total_amount_per_item, aes(x = items, y = total_amount, fill = total_amount)) +
+  geom_col() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Total Amount by Number of Items Purchased",
+       x = "Number of Items Purchased",
+       y = "Total Amount Spent") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal()
+```
+
+## Key Findings 
+The analysis of total transaction amounts by number of items showed higher total amounts for some item categories, this was due to a higher volume of transactions rather than increased spending per transaction. Therefore, purchasing more items does not necessarily lead to higher transaction spending. Customers may purchase fewer expensive items or many low-cost items, resulting in similar spending levels across item counts.
+
+# Question 3: Age vs Region Relationship
+
+*Research Question:* Is there a differences in the age of a customer between region?
+
+*Approach:* 
+
+- Bar Chart - Visual relationship between Age and Region.
+```{r}
+ggplot(commerce, aes(x=age_range,fill = region))+
+  geom_bar(position = "dodge")+
+  labs(title = "Age distribution of customers by region", x="Age Range", y="Number of customers"
+       )+
+   scale_fill_brewer(palette = "set3")                 
+```
+
+## Key Findings
+Age distribution varied across regions. Adult customers formed the largest group in all regions, while elderly customers formed the smallest group. The West region had the highest number of adult and middle-aged customers, while the South region had a relatively higher proportion of elderly customers. This indicates demographic differences in customer age distribution across regions.
+
+# Question 4: can we Predict the age of a customer in a region based on other demographic data?
+
+## Predictive Modeling Approach
+
+*Goal:* Build models to predict customer age
+
+*Methodology:*
+1. *Feature Selection Analysis* - Identify which features predict age
+2. *Model Training* - Train 3 different algorithms with selected features
+3. *Model Comparison* - Select the best performing model
+
+# Feature Selection Analysis
+## variable importance(feature importance)
+
+```{r warning=FALSE}
+model <- randomForest(age ~ ., data = Demo, importance = TRUE)
+```
+
+```{r}
+importance(model)
+
+```
+
+```{r}
+varImpPlot(model)
+```
+
+
+## feature selection
+Variable importance analysis suggested purchase mode and region as relatively influential predictors of age, although their predictive power was weak.
+
+# predictive modeling for age
+## data splitting for Age
+```{r}
+set.seed(3456)
+trainIndex <- createDataPartition(commerce$age, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+head(trainIndex)
+```
+
+```{r}
+commerceTrain <- commerce[ trainIndex,]
+commerceTest  <- commerce[-trainIndex,]
+```
+
+
+```{r}
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10)
+```
+
+## Building the model using Random Forest.
+```{r warning=FALSE}
+set.seed(3456)
+rfFit1 <- train(age ~ purchase.mode+region, data = commerceTrain, 
+                 method = "rf", 
+                 #trControl = fitControl,
+                 ## This last option is actually one
+                 ## for rf() that passes through
+                 verbose = FALSE)
+rfFit1
+```
+
+
+```{r}
+saveRDS(rfFit1,"rfFit1_model.rds")
+readRDS("rfFit1_model.rds")
+```
+
+## Testing the model.
+```{r}
+rfFit_pred <- predict(rfFit1, newdata = commerceTest)
+```
+
+
+# Predicted
+```{r}
+head(rfFit_pred)
+```
+
+# Actual
+
+```{r}
+head(commerceTest$age)
+```
+
+## Building the model using Pls.
+```{r warning=FALSE}
+set.seed(3456)
+plsFit1 <- train(age ~ purchase.mode+region, data = commerceTrain, 
+                 method = "pls", 
+                 trControl = fitControl,
+                 ## This last option is actually one
+                 ## for pls() that passes through
+                 verbose = FALSE)
+plsFit1
+```
+
+
+```{r}
+saveRDS(plsFit1,"plsFit1_model.rds")
+readRDS("plsFit1_model.rds")
+```
+
+
+## Testing the model.
+```{r}
+plsFit1_pred <- predict(plsFit1, newdata = commerceTest)
+```
+
+
+# Predicted
+```{r}
+head(plsFit1_pred)
+```
+
+# Actual
+
+```{r}
+head(commerceTest$age)
+```
+
+## Building the model using Linear Model.
+```{r warning=FALSE}
+set.seed(3456)
+LmFit1 <- train(age ~ purchase.mode+region, data = commerceTrain, 
+                 method = "lm", 
+                 trControl = fitControl,
+                 ## This last option is actually one
+                 ## for lm() that passes through
+                 verbose = FALSE)
+LmFit1
+```
+
+
+```{r}
+saveRDS(LmFit1,"LmFit1_model.rds")
+readRDS("LmFit1_model.rds")
+```
+
+
+## Testing The Model.
+```{r}
+LmFit_pred <- predict(LmFit1, newdata = commerceTest)
+```
+
+
+# Predicted
+```{r}
+head(LmFit_pred)
+```
+
+# Actual
+```{r}
+head(commerceTest$age)
+```
+
+## Scatter Plot for Predicted and Actual 
+```{r}
+pred_df <- data.frame(
+  Actual_Age = commerceTest$age,
+  Predicted_Age = rfFit_pred)
+
+ggplot(pred_df, aes(x = Actual_Age, y = Predicted_Age)) +
+  geom_point(alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, color = "steelblue") +
+  labs(title = "Actual vs Predicted Age (Random Forest)",
+       x = "Actual Age",
+       y = "Predicted Age") +
+  theme_minimal()
+```
+
+## Key Findings
+
+Random Forest, Partial Least Squares, and Linear Regression models were trained to predict customer age using purchase mode and region as predictors. All models showed low predictive performance (R² ≈ 0.1–0.2), and the scatter plot of actual versus predicted age showed wide dispersion from the 45-degree reference line. This indicates that purchase mode and region have limited predictive power for customer age, suggesting that age is influenced by other unobserved factors such as income, lifestyle, or customer preferences.
+
+
+# Question 5: Is there a relationship between the age of a customer and if they buy online or in-store
+
+*Type:* Binary Classification Problem
+
+*Target Variable:* Purchase Channel (Online vs In-Store)
+
+```{r}
+ggplot(commerce, aes(x = age_range, fill = purchase.mode)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Customer Age Range by Purchase Mode",
+    x = "Age Range",
+    y = "Number of Customers",
+    fill = "Purchase Mode")
+```
+
+## Key Findings
+
+The bar chart comparing age groups and purchase mode showed that adult and middle-aged customers preferred in-store purchases, while elderly customers showed a relatively higher proportion of online purchases. This contradicts Martin’s hypothesis that older customers prefer in-store shopping. Therefore, the hypothesis is rejected based on the observed data.
+
+
+# Question 6:do any other factors predict if a customer will buy online or in-store
+*What factors predict if customers buy online or in-store?*
+
+## Correlation Matrix
+```{r}
+corrData <- cor(Demo)
+corrData
+```
+
+## feature selection
+Purchase mode predictors are age and region.
+
+
+## Data splitting for Purchase.mode
+```{r}
+set.seed(3456)
+trainIndex <- createDataPartition(commerce$purchase.mode, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+head(trainIndex)
+```
+
+
+```{r}
+purchase.modeTrain <- commerce[ trainIndex,]
+purchase.modeTest  <- commerce[-trainIndex,]
+```
+
+
+```{r}
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10)
+```
+
+## Building the model using Gbm Model.
+```{r}
+set.seed(3456)
+gbmFit1 <- train(purchase.mode ~ age+region, data = purchase.modeTrain, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                  #This last option is actually one
+                  #for gbm() that passes through
+                 verbose = FALSE)
+
+gbmFit1
+```
+
+
+```{r}
+saveRDS(gbmFit1,"gbmFit1_model.rds")
+readRDS("gbmFit1_model.rds")
+```
+ 
+```{r}
+gbm_pred <- predict(gbmFit1, newdata = purchase.modeTest)
+```
+
+## Predicted
+```{r}
+head(gbm_pred)
+```
+ 
+ 
+## Actual
+```{r}
+head(purchase.modeTest$purchase.mode)
+```
+
+
+## Building the model using C50 Model 
+```{r}
+set.seed(3456)
+c50Fit1 <- train(purchase.mode ~ age+region, data = purchase.modeTrain, 
+                 method = "C5.0", 
+                 trControl = fitControl,
+                  #This last option is actually one
+                  #for C5.0() that passes through
+                 verbose = FALSE)
+
+c50Fit1
+```
+
+```{r}
+saveRDS(c50Fit1,"c50Fit1_model.rds")
+readRDS("c50Fit1_model.rds")
+```
+
+```{r}
+c50_pred <- predict(c50Fit1, newdata = purchase.modeTest)
+```
+
+
+## Testing My Model.
+```{r}
+head(c50_pred)
+```
+
+
+## Actual
+```{r}
+head(purchase.modeTest$purchase.mode)
+```
+
+## Building the model using PLS Model
+```{r warning=FALSE}
+set.seed(3456)
+plsFit2 <- train(purchase.mode ~ age+region, data = purchase.modeTrain, 
+                 method = "pls", 
+                 trControl = fitControl,
+                  #This last option is actually one
+                  #for pls() that passes through
+                 verbose = FALSE)
+
+plsFit2
+```
+
+```{r}
+saveRDS(plsFit2,"plsFit2_model.rds")
+readRDS("plsFit2_model.rds")
+```
+
+```{r}
+pls_pred <- predict(plsFit2, newdata = purchase.modeTest)
+```
+
+
+## Testing My Model
+```{r}
+head(pls_pred)
+```
+
+## Actual
+```{r}
+head(purchase.modeTest$purchase.mode)
+```
+
+# confusion matrix for my prediction for purchase mode.
+## Gbm
+```{r}
+confusionMatrix(gbm_pred, purchase.modeTest$purchase.mode)
+```
+
+## C50
+```{r}
+confusionMatrix(c50_pred, purchase.modeTest$purchase.mode)
+```
+
+## PLS
+```{r}
+confusionMatrix(pls_pred, purchase.modeTest$purchase.mode)
+```
+
+
+## Final Model Using GBM
+```{r}
+set.seed(3456)
+gbmFitFinal <- train(purchase.mode ~ age+region, data = purchase.modeTrain, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 tuneGrid = data.frame(interaction.depth = 3, 
+                                       n.trees = 100, 
+                                       shrinkage = .1,
+                                       n.minobsinnode = 10),
+                  #This last option is actually one
+                  #for gbm() that passes through
+                 verbose = FALSE)
+
+gbmFitFinal
+```
+
+
+```{r}
+saveRDS(gbmFitFinal,"gbmFitFinal_model.rds")
+readRDS("gbmFitFinal_model.rds")
+```
+
+
+```{r}
+purchase.mode_prediction <- predict(gbmFitFinal, newdata = purchase.modeTest)
+```
+
+## Final Prediction
+```{r}
+head(purchase.mode_prediction)
+```
+
+## Actual
+```{r}
+head(purchase.modeTest$purchase.mode)
+```
+
+## Key Findings
+Classification models (GBM, C5.0, and PLS) were trained to predict purchase mode using age and region. The GBM model achieved the highest accuracy and was selected as the final model. The results indicate that age and region moderately predict whether a customer will purchase online or in-store, demonstrating that demographic factors influence purchasing channel preference.
+
+
+# Question 7:can we predict the region of a customer using other demographics.
+*Can we predict which region a customer is from?*
+
+*Type:* Multi-Class Classification Problem (4 classes)
+
+*Target Variable:* Region (North, South, East, West)
+
+*Predictors:* Age, Purchase Channel, Amount
+
+## data splitting for Region
+```{r}
+set.seed(3456)
+trainIndex <- createDataPartition(commerce$region, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+head(trainIndex)
+```
+
+```{r}
+regionTrain <- commerce[ trainIndex,]
+regionTest  <- commerce[-trainIndex,]
+```
+
+
+```{r}
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10)
+```
+
+## Building My Model Using GBM
+```{r}
+set.seed(3456)
+gbmFit2<- train(region ~ amount+purchase.mode+age, data = regionTrain, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                  #This last option is actually one
+                  #for gbm() that passes through
+                 verbose = FALSE)
+
+gbmFit2
+```
+
+```{r}
+saveRDS(gbmFit2,"gbmFit2_model.rds")
+readRDS("gbmFit2_model.rds")
+```
+
+```{r}
+gbmFit2_pred <- predict(gbmFit2, newdata = regionTest)
+```
+
+## Testing My GBM Model
+```{r}
+head(gbmFit2_pred)
+```
+
+
+## Actual
+```{r}
+head(regionTest$region)
+```
+
+## Building My Model Using GLM
+```{r warning=FALSE}
+set.seed(3456)
+GlmFit1<- train(region ~ amount+purchase.mode+age, data = regionTrain, 
+                 method = "glmnet", 
+                 trControl = fitControl,
+                  #This last option is actually one
+                  #for glm() that passes through
+                 verbose = FALSE)
+
+GlmFit1
+```
+
+
+```{r}
+saveRDS(GlmFit1,"GlmFit1_model.rds")
+readRDS("GlmFit1_model.rds")
+```
+
+
+```{r}
+glm_pred <- predict(GlmFit1, newdata = regionTest)
+```
+
+## Testing My Model
+```{r}
+head(glm_pred)
+```
+
+## Actual
+```{r}
+head(regionTest$region)
+```
+
+## Building My Model Using C50
+```{r warning=FALSE}
+set.seed(3456)
+C50_Fit2<- train(region ~ amount+purchase.mode+age, data = regionTrain, 
+                 method = "C5.0", 
+                 trControl = fitControl,
+                  #This last option is actually one
+                  #for C5.0() that passes through
+                 verbose = FALSE)
+
+C50_Fit2
+```
+
+
+```{r}
+saveRDS(C50_Fit2,"C50_Fit2_model.rds")
+readRDS("C50_Fit2_model.rds")
+```
+
+
+```{r}
+C50__pred <- predict(C50_Fit2, newdata = regionTest)
+```
+
+
+# Testing My model
+```{r}
+head(C50__pred)
+```
+
+
+# Actual
+```{r}
+head(regionTest$region)
+```
+
+
+# confusion matrix for Region prediction
+## GLM
+```{r}
+confusionMatrix(gbmFit2_pred, regionTest$region)
+```
+
+## GLM
+```{r}
+confusionMatrix(glm_pred, regionTest$region)
+```
+
+## C50
+```{r}
+confusionMatrix(C50__pred, regionTest$region)
+```
+
+
+## Final Model Using GBM
+```{r}
+set.seed(3456)
+gbmFit2_Final <- train(region ~ amount+purchase.mode+age, data = regionTrain, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 tuneGrid = data.frame(interaction.depth = 3, 
+                                       n.trees = 150, 
+                                       shrinkage = .1,
+                                       n.minobsinnode = 10),
+                  #This last option is actually one
+                  #for gbm() that passes through
+                 verbose = FALSE)
+
+gbmFit2_Final
+```
+
+
+```{r}
+saveRDS(gbmFit2_Final,"gbmFit2_Final_model.rds")
+readRDS("gbmFit2_Final_model.rds")
+```
+
+## Predicted
+```{r}
+head(gbmFit2_pred)
+```
+
+## Actual
+```{r}
+head(regionTest$region)
+```
+## Key Findings
+Multi-class classification models were developed to predict customer region using age, purchase mode, and transaction amount. The GBM model achieved the highest accuracy and was selected as the final model. The results indicate that demographic and transactional variables can predict customer region with reasonable accuracy, suggesting that purchasing behavior varies across geographical regions.
+
+# Conclusion
+This study investigated customer purchasing patterns in Blackwell’s e-commerce transactions, focusing on regional spending behavior, relationships between items purchased and transaction amount, and predictive modeling of demographic and behavioral variables.
+
+The analysis revealed significant regional differences in spending, with customers in the West region exhibiting the highest average transaction amounts. Adult customers formed the largest customer group, and purchasing behavior differed across age groups, with adults and middle-aged customers preferring in-store transactions, while elderly customers showed relatively higher online purchasing behavior.
+
+Correlation and regression analyses showed that demographic variables such as region and purchase mode had limited predictive power for customer age, indicating that age is influenced by factors beyond the variables available in this dataset. However, classification models demonstrated that age and region can moderately predict purchase mode, and demographic and behavioral variables can also predict customer region with reasonable accuracy.
+
+Overall, the findings highlight the importance of regional and demographic segmentation in understanding customer purchasing behavior. These insights can support targeted marketing strategies and improved customer engagement across online and in-store channels.
+
+
+# Recommendations
+	1.	Blackwell should increase targeted online marketing campaigns for elderly customers, who show a higher propensity for online purchases.
+	2.	The company should improve website usability and accessibility to encourage more online transactions among all age groups.
+	3.	Regional spending insights should be used to design region-specific promotions and pricing strategies to maximize revenue.
+	4.	Additional customer attributes such as income level, education, and loyalty membership should be collected to improve predictive modeling accuracy.
